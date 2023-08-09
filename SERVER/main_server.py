@@ -21,8 +21,8 @@ SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = st
 """
     Sending Data:
         Priority:
-            Close -> ( 0 , None )
-            Success -> ( 7 , None )
+            Close -> ( 0 , True )
+            Success -> ( 7 , True )
             Rejection -> (4 , tile_time )
             Information -> ( 8 , ( active_players, most_active_course, most_used_color ) )
         Minor :
@@ -30,9 +30,9 @@ SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = st
     
     Receive Data:
         Priority :
-            Close -> { 0 : None }
-            Download -> { 1 : None }
-            Information -> { 9 : None }
+            Close -> { 0 : True }
+            Download -> { 1 : True }
+            Information -> { 9 : True }
         Minor :
             Update Tiles -> { 3 : ( position , course , color ) }
                     
@@ -73,23 +73,22 @@ class CustomSocket :
 
     def received(self) -> tp.Union[None, tp.Dict] :
         self.done_activity = False
-        print("------------------ Thread Receive Happen ---------- ")
-        try :
-            header = self.__connection.recv(HEADER_SIZE)
-        except os.error:
-            header = None
-        print(f"[!] Header : {header}")
+        header: bytes = received_data(self.__connection, HEADER_SIZE)
         # Received ; 'code:body_size'
-        print("------------------ Thread Receive Done ---------- ")
-        if not header :
+        if header is None :
             self.done_activity = True
             return None
+        print(f"[!] Dumps Header : {header}")
         header: str = pickle.loads(header)
+        print(f"[!] Loads Header : {header}")
+
         code, bode_size = header.split(":")
-        body: bytes = received_data(self.__connection, int(bode_size) + 10)  # Received ; '(int, int, int)'
-        if not body :
+        body: bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
+        print(f"[!] Dumps Body : {body}")
+        if body is None :
             self.done_activity = True
             return None
+        print(f"[!] Loads Body : {pickle.loads(body)}")
         self.done_activity = True
         return {int(code) : pickle.loads(body)}
 
@@ -97,7 +96,7 @@ class CustomSocket :
         self.done_activity = False
         data = pickle.dumps(data)
         body_size = sys.getsizeof(data)
-        print(f"[!] Packet Size {code}:{body_size} = " , end='')
+        print(f"[!] Packet Size {code}:{body_size} = ", end='')
         print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
         print(f"[!] Body Size : {body_size}")
         if not send_data(self.__connection, pickle.dumps(f"{code}:{body_size}")) :  # Sent ; 'code:body_size'
@@ -110,7 +109,7 @@ class CustomSocket :
         return True
 
     def close(self) :
-        self.__connection.shutdown()
+        self.__connection.shutdown(socket.SHUT_RDWR)
         self.__connection.close()
 
 
@@ -139,7 +138,7 @@ class PlayerSockets :
 
     def threadBoardActivitiesUpdate(self) :
         while not self.has_connection_error and not self.close_transaction :
-            if len(self.pending_board_activities) > 0 and self.done_downloading:
+            if len(self.pending_board_activities) > 0 and self.done_downloading :
                 self.send_items.append(self.pending_board_activities.pop(0))
 
     def threadSend(self) :
@@ -223,16 +222,16 @@ class ServerTransaction :
     current_players: dict[str, PlayerSockets] = {}
     pending_activity_in_boards: list[tuple[int, int, int], ...] = []
 
-    server_socket : socket.socket = None
+    server_socket: socket.socket = None
 
     # Information
-    active_players : int = 0
-    most_active_course : int = 0
-    most_used_color : list[int , int] = [0 , 0] # [ course , color ]
+    active_players: int = 0
+    most_active_course: int = 0
+    most_used_color: list[int, int] = [0, 0]  # [ course , color ]
 
-    def saveBoardData(self):
-        with open(self.filename , 'w') as jf:
-            json.dump(self.__board , jf)
+    def saveBoardData(self) :
+        with open(self.filename, 'w') as jf :
+            json.dump(self.__board, jf)
         print("[ / ] Done saving the board")
 
     def loadBoardPastData(self) :
@@ -258,8 +257,8 @@ class ServerTransaction :
 
     def updateBoardTiles(self, tile: int, course: int, color: int) :
         self.__board[tile] = [course, color, self.COOLDOWN]
-        for player in self.current_players:
-            self.current_players[player].putTilesInfoInBoardActivities(data=( 2 , ( tile , course , color ) ))
+        for player in self.current_players :
+            self.current_players[player].putTilesInfoInBoardActivities(data=(2, (tile, course, color)))
 
     def getBoardDataForSendingTileInformation(self, tile: int) -> tuple[
         int, pickle.dumps] :  # return of a size of bytes and bytes
@@ -288,15 +287,15 @@ class ServerTransaction :
         self.current_players[socket_id].closeAllProcess()
         del self.current_players[socket_id]
 
-    def threadUpdateInformation(self):
-        while not SHUTDOWN_SERVER:
+    def threadUpdateInformation(self) :
+        while not SHUTDOWN_SERVER :
 
             # Get the active players
             self.active_players = len(self.current_players)
 
             # Filter out items with None in the first and last positions
             filtered_board = [item for item in self.__board.copy() if item[0] is not None and item[1] is not None]
-            if not filtered_board:
+            if not filtered_board :
                 self.most_active_course = 0
                 self.most_used_color[0] = 0
                 self.most_used_color[1] = 0
@@ -313,40 +312,39 @@ class ServerTransaction :
                 self.most_used_color[1] = highest_combinations[0][1]
 
     def threadLessenEveryInBoardBySecond(self) :
-        def lessenTimeInTile(tile_start : int , tile_last : int ) :
+        def lessenTimeInTile(tile_start: int, tile_last: int) :
             time_sleep = self.COOLDOWN_INTERVAL / 60
             while not SHUTDOWN_SERVER :
                 for _ in range(60) :
                     time.sleep(time_sleep)
                     if SHUTDOWN_SERVER : break  # if any shutdown happen then close it
 
+                start_time = time.time()  # use for debugging
 
-                start_time = time.time() # use for debugging
-
-                for tile in range(tile_start , tile_last) :
+                for tile in range(tile_start, tile_last) :
                     self.lessenTimeInTile(tile, self.COOLDOWN_INTERVAL)
                     if SHUTDOWN_SERVER : break  # if any shutdown happen then close it
 
-                end_time = time.time() # use for debugging
-                time_taken = end_time - start_time # use for debugging
+                end_time = time.time()  # use for debugging
+                time_taken = end_time - start_time  # use for debugging
 
-                #print(f"Time taken: {time_taken:.6f} seconds") # use for debugging
+                # print(f"Time taken: {time_taken:.6f} seconds") # use for debugging
 
         interval = 10
         batch_tile = 0
-        tiles_every_interval = int( len(self.__board) / interval )
+        tiles_every_interval = int(len(self.__board) / interval)
 
-        for _ in range(interval):
-            threading.Thread(target=lessenTimeInTile , args=( batch_tile , batch_tile + tiles_every_interval)).start()
+        for _ in range(interval) :
+            threading.Thread(target=lessenTimeInTile, args=(batch_tile, batch_tile + tiles_every_interval)).start()
             batch_tile += tiles_every_interval
 
         print("[/] Done Running The Cooldown Of Every Tiles")
 
     def threadRemoveSocketIfNotTakenForASeconds(self, socket_id: str) :
         for counter in range(2) :
-            for i in range(60):
-                time.sleep(1/60)
-                if SHUTDOWN_SERVER:
+            for i in range(60) :
+                time.sleep(1 / 60)
+                if SHUTDOWN_SERVER :
                     return
 
             if self.pending_players.get(socket_id) is None and counter == 1 :
@@ -359,34 +357,29 @@ class ServerTransaction :
         socket_id: bytes = received_data(client, SOCKET_ID_SIZE)
         if not socket_id : return
         socket_id: str = pickle.loads(socket_id)
-        print(f"\n[!] Socket ID : {socket_id}") # use for debugging
+        print(f"\n[!] Socket ID : {socket_id}")  # use for debugging
         if socket_id not in self.pending_players :  # If First Time Entering Then Add To
             self.pending_players[socket_id] = client
-            print(f"[!] Saved in pending players : {socket_id}") # use for debugging
+            print(f"[!] Saved in pending players : {socket_id}")  # use for debugging
             threading.Thread(target=self.threadRemoveSocketIfNotTakenForASeconds, args=(socket_id,)).start()
         else :
-            print(f"[!] Found Partner : {socket_id}") # use for debugging
+            # print(f"[!] Found Partner : {socket_id}") # use for debugging
             recv_socket = self.pending_players[socket_id]
+            recv_socket.shutdown(socket.SHUT_WR)
             del self.pending_players[socket_id]
-            print(f"[!] Got The Partner : {socket_id}") # use for debugging
+            # print(f"[!] Got The Partner : {socket_id}") # use for debugging
             self.createClassFor2SocketAndAddToCurrentPlayers(socket_id=socket_id, send_socket=client,
                                                              recv_socket=recv_socket)
-            print(f"[!] Done Creating Class : {socket_id}") # use for debugging
+            # print(f"[!] Done Creating Class : {socket_id}") # use for debugging
             # Start the sending and receiving the player
-            threads = []
-            threads.append( threading.Thread(target=self.current_players[socket_id].threadRecv) )
-            threads.append( threading.Thread(target=self.current_players[socket_id].threadSend) )
-            threads.append( threading.Thread(target=self.current_players[socket_id].threadBoardActivitiesUpdate) )
-            print(f"[!] Thread Start Of Sending And Receiving : {socket_id}") # use for debugging
-            threads.append( threading.Thread(target=self.threadHandleTheNotificationOfServerAndPlayer, args=(socket_id,) ) )
-            print(f"[!] Thread Start Of Handling Notification To Server : {socket_id} ") # use for debugging
-            threads.append( threading.Thread(target=self.threadHandleTheActivityOfPlayer , args=(socket_id, )) )
-            print(f"[!] Thread Start Of Handling Activity : {socket_id}") # use for debugging
-
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
+            threading.Thread(target=self.current_players[socket_id].threadRecv).start()
+            threading.Thread(target=self.current_players[socket_id].threadSend).start()
+            threading.Thread(target=self.current_players[socket_id].threadBoardActivitiesUpdate).start()
+            # print(f"[!] Thread Start Of Sending And Receiving : {socket_id}") # use for debugging
+            threading.Thread(target=self.threadHandleTheNotificationOfServerAndPlayer, args=(socket_id,)).start()
+            # print(f"[!] Thread Start Of Handling Notification To Server : {socket_id} ") # use for debugging
+            threading.Thread(target=self.threadHandleTheActivityOfPlayer, args=(socket_id,)).start()
+            # print(f"[!] Thread Start Of Handling Activity : {socket_id}") # use for debugging
 
     def threadHandleTheNotificationOfServerAndPlayer(self, socket_id: str) :
         """ This where the notifying the server or the player  """
@@ -394,17 +387,18 @@ class ServerTransaction :
 
             if SHUTDOWN_SERVER :  # Activity when the admin want to close the server
                 self.activityShutdownTheServer(socket_id)
-                print(f"[!] Notify of shutting down server : {socket_id}") # use for debugging
+                print(f"[!] Notify of shutting down server : {socket_id}")  # use for debugging
                 break
 
             if self.current_players[socket_id].checkPlayerSocket() :  # Activity when the player socket has an error
                 self.activityPlayerHasErrorConnection(socket_id)
-                print(f"[!] Notify of closing the player : {socket_id}") # use for debugging
+                print(f"[!] Notify of closing the player : {socket_id}")  # use for debugging
                 break
 
     def threadHandleTheActivityOfPlayer(self, socket_id: str) :
         """ This where the activity of player, Such; download board and any activities"""
-        while not SHUTDOWN_SERVER and not self.current_players[socket_id].close_transaction and not self.current_players[socket_id].has_connection_error:
+        while not SHUTDOWN_SERVER and not self.current_players[socket_id].close_transaction and not \
+        self.current_players[socket_id].has_connection_error :
             if self.current_players[socket_id].recv_items :
                 activity = self.current_players[socket_id].getFirstRecvItems()
 
@@ -412,47 +406,50 @@ class ServerTransaction :
                 if activity.get(0) :
                     self.current_players[socket_id].closeAllProcess()
                     del self.current_players[socket_id]
-                    print(f"[!] Activity user want to close the app : {socket_id}") # use for debugging
+                    print(f"[!] Activity user want to close the app : {socket_id}")  # use for debugging
 
                 # if user want to join the game
                 if activity.get(1) :
                     # send the tiles in board
-                    print(f"[!] Activity user want to download the board : {socket_id}") # use for debugging
+                    print(f"[!] Activity user want to download the board : {socket_id}")  # use for debugging
                     interval = 5
                     downloaded = 0
                     need_data_every_interval = len(self.__board) / interval
-                    for i in range(interval):
+                    for i in range(interval) :
                         datas = tuple(
-                            ( pos , self.__board[pos][0] , self.__board[pos][1] ) for pos in range( downloaded , int( downloaded + need_data_every_interval) )
+                            (pos, self.__board[pos][0], self.__board[pos][1]) for pos in
+                            range(downloaded, int(downloaded + need_data_every_interval))
                         )
                         downloaded += need_data_every_interval
                         if self.current_players[socket_id].has_connection_error :
                             break
                         else :
-                            self.current_players[socket_id].putItemInSendItems( data= (2 , datas ))
-                    self.current_players[socket_id].putItemInSendItems( data=( 7 , None ))
+                            self.current_players[socket_id].putItemInSendItems(data=(2, datas))
+                    self.current_players[socket_id].putItemInSendItems(data=(7, None))
                     self.current_players[socket_id].done_downloading = True
 
                 # if user want to check the information of app
                 if activity.get(9) :
                     # Information -> ( 8 , ( active_players, most_active_course, most_used_color ) )
-                    self.current_players[socket_id].putItemInSendItems(data=(8 , (self.active_players , self.most_active_course , tuple(self.most_used_color))))
+                    self.current_players[socket_id].putItemInSendItems(
+                        data=(8, (self.active_players, self.most_active_course, tuple(self.most_used_color))))
 
                 # if user want to change the tiles in board
                 if activity.get(3) :
-                    if self.checkIfCurrentlyCooldown(activity[3][0]):
-                        self.updateBoardTiles(tile=activity[3][0] , course=activity[3][1] , color=activity[3][2])
+                    if self.checkIfCurrentlyCooldown(activity[3][0]) :
+                        self.updateBoardTiles(tile=activity[3][0], course=activity[3][1], color=activity[3][2])
                     else :
-                        self.current_players[socket_id].putItemInSendItems(data=(4 , self.getBoardTileData(activity[3][0])[-1] ))
+                        self.current_players[socket_id].putItemInSendItems(
+                            data=(4, self.getBoardTileData(activity[3][0])[-1]))
 
-    def runTheServer(self):
+    def runTheServer(self) :
         """ This is where the configuring and assembling all the functions """
         self.loadBoardPastData()
         self.threadLessenEveryInBoardBySecond()
         threading.Thread(target=self.threadUpdateInformation).start()
 
         self.server_socket = create_socket()
-        if not self.server_socket:
+        if not self.server_socket :
             print("[!] Error : Cant make a socket for server ")
             return
 
@@ -464,40 +461,38 @@ class ServerTransaction :
 
             while True :
                 if not SHUTDOWN_SERVER :
-                    client , _ = self.server_socket.accept()
-                    if not SHUTDOWN_SERVER:
-                        threading.Thread(target=self.threadIdentifySocketBeforeAddingToCurrentPlayers , args=(client, )).start()
+                    client, _ = self.server_socket.accept()
+                    threading.Thread(target=self.threadIdentifySocketBeforeAddingToCurrentPlayers,
+                                     args=(client,)).start()
 
-        except Exception as e:
+        except Exception as e :
             print(f"[!] The Error : {e}")
 
         DONE_RUNNING_SERVER = False
 
-    def closeTheServer(self):
+    def closeTheServer(self) :
         global SHUTDOWN_SERVER
-        self.server_socket.shutdown(socket.SHUT_RDWR)
         SHUTDOWN_SERVER = True
 
-        for i in self.pending_players:
-            try:
+        for i in self.pending_players :
+            try :
                 self.pending_players[i].close()
-            except socket.error:
+            except socket.error :
                 print("[!] Pending player closing error")
         self.pending_players.clear()
 
-        while self.current_players:
+        while self.current_players :
             pass
 
         self.saveBoardData()
-        if self.server_socket:
+        if self.server_socket :
             self.server_socket.close()
 
 
-
-def main():
+def main() :
     transaction = ServerTransaction()
 
-    while not SHUTDOWN_SERVER:
+    while not SHUTDOWN_SERVER :
         print("\n ------------- SERVER ------------------ ")
         print("ACTIVITIES : ")
         print("  RUN SERVER = 'R' ")
@@ -509,7 +504,7 @@ def main():
                 print("[!] The Server Is Currently Running")
             else :
                 threading.Thread(target=transaction.runTheServer).start()
-                while not DONE_RUNNING_SERVER:
+                while not DONE_RUNNING_SERVER :
                     pass
 
         elif activity.lower() == 'c' :
@@ -518,8 +513,6 @@ def main():
 
         else :
             print("[    !] Follow The Instruction!")
-
-
 
     # total_pickle = 0
     # total_json = 0
@@ -537,6 +530,8 @@ def main():
     # print(f"Pickle : {total_pickle:3,}")
     # print(f"Json : {total_json:3,}")
 
-if __name__ == "__main__" :
 
-    main()
+if __name__ == "__main__" :
+    transaction = ServerTransaction()
+    transaction.runTheServer()
+    # //main()

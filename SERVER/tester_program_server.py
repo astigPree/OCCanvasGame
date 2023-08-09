@@ -7,6 +7,7 @@ import threading
 import typing as tp
 import sys
 from uuid import uuid4
+import time
 
 
 ADDR = "localhost"
@@ -30,7 +31,7 @@ def create_socket() -> tp.Union[socket.socket, None] :
 
 def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
     try :
-        data: bytes = client.recv(packet)
+        data: bytes = client.recv(packet )
     except socket.error :
         return None
     return data
@@ -38,9 +39,7 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
 
 def send_data(client: socket.socket, data: bytes) -> bool :
     try :
-        print("[!] Sending ")
         client.sendall(data)
-        print("[!] Sending Done")
     except socket.error :
         return False
     return True
@@ -74,12 +73,16 @@ class CustomSocket:
         print(f"[!] Packet Size {code}:{body_size} = " , end='')
         print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
         print(f"[!] Body Size : {body_size}")
+        time.sleep(1 / 5) # Time lang gali an problema na yawa
         if not send_data(self.__connection, pickle.dumps(f"{code}:{body_size}")) :  # Sent ; 'code:body_size'
             self.done_activity = True
             return False
+        print("[/] Done Sending Header")
+        time.sleep(1 / 5) # Time lang gali an problema na yawa
         if not send_data(self.__connection, data) :  # Sent ; '(int, int, int)'
             self.done_activity = True
             return False
+        print("[/] Done Sending Body")
         self.done_activity = True
         return True
 
@@ -114,25 +117,25 @@ class PlayerSockets :
             self.send.close()
 
     def connectToServer(self) -> bool :
-        recv_socket = create_socket()
-        if not recv_socket :
-            return False
-
-        un_id = str(uuid4())[:5]
-
-        if not send_data(recv_socket , pickle.dumps(un_id) ) :
-            return False
-
-        self.recv.setSocket(recv_socket)
-
         send_socket = create_socket()
         if not send_socket :
             return False
+
+        un_id = str(uuid4())[:5]
 
         if not send_data(send_socket , pickle.dumps(un_id) ) :
             return False
 
         self.send.setSocket(send_socket)
+
+        recv_socket = create_socket()
+        if not recv_socket :
+            return False
+
+        if not send_data(recv_socket , pickle.dumps(un_id) ) :
+            return False
+
+        self.recv.setSocket(recv_socket)
         return True
 
     def threadBoardActivitiesUpdate(self) :
@@ -144,6 +147,7 @@ class PlayerSockets :
         while not self.has_connection_error and not self.close_transaction :
             if len(self.send_items) > 0 :
                 data = self.send_items[0]
+                print(f"Thread Send {data}")
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
                 else :
@@ -226,7 +230,7 @@ def testServer():
     print("[!] Run Threading")
 
     # Download The Board
-    client.putItemInSendItems( data= ( 1 , None))
+    client.putItemInSendItems( data= ( 1 , True))
     print("[!] Downloading The Board")
 
     # Display If Any Occurrence Happen
@@ -237,6 +241,7 @@ def testServer():
             if data:
                 counting += 1
                 print(f"{counting} : {data}")
+
 
     threading.Thread(target=displayReceived).start()
 
