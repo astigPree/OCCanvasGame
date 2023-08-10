@@ -15,7 +15,7 @@ NUMBER_OF_CONNECTED = 400
 SHUTDOWN_SERVER = False
 DONE_RUNNING_SERVER = False
 
-HEADER_SIZE = 53  # The size of header when using pickle , format ; '7:567' = code:pickle_size
+HEADER_SIZE = 56 # The size of header when using pickle , format ; '7:567' = code:pickle_size
 SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = str(uuid.uuid4())[:5]
 
 """
@@ -56,8 +56,9 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
     return data
 
 
-def send_data(client: socket.socket, data: bytes) -> bool :
+def send_data(client: socket.socket, data: bytes , timing = 5) -> bool :
     try :
+        time.sleep(1 / timing)
         client.sendall(data)
     except socket.error :
         return False
@@ -78,17 +79,17 @@ class CustomSocket :
         if header is None :
             self.done_activity = True
             return None
-        print(f"[!] Dumps Header : {header}")
+        # print(f"[!] Dumps Header : {header}")
         header: str = pickle.loads(header)
         print(f"[!] Loads Header : {header}")
 
         code, bode_size = header.split(":")
         body: bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
-        print(f"[!] Dumps Body : {body}")
+        # print(f"[!] Dumps Body : {body}")
         if body is None :
             self.done_activity = True
             return None
-        print(f"[!] Loads Body : {pickle.loads(body)}")
+        # print(f"[!] Loads Body : {pickle.loads(body)}")
         self.done_activity = True
         return {int(code) : pickle.loads(body)}
 
@@ -96,9 +97,9 @@ class CustomSocket :
         self.done_activity = False
         data = pickle.dumps(data)
         body_size = sys.getsizeof(data)
-        print(f"[!] Packet Size {code}:{body_size} = ", end='')
-        print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
-        print(f"[!] Body Size : {body_size}")
+        # print(f"[!] Packet Size {code}:{body_size} = ", end='')
+        # print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
+        # print(f"[!] Body Size : {body_size}")
         if not send_data(self.__connection, pickle.dumps(f"{code}:{body_size}")) :  # Sent ; 'code:body_size'
             self.done_activity = True
             return False
@@ -126,6 +127,7 @@ class PlayerSockets :
     has_connection_error = False
     close_transaction = False
 
+
     def closeAllProcess(self) :
         self.close_transaction = True
         self.recv_items.clear()
@@ -148,7 +150,10 @@ class PlayerSockets :
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
                 else :
-                    del self.send_items[0]
+                    try:
+                        self.send_items.remove(data)
+                    except ValueError:
+                        pass
 
     def threadRecv(self) :
         while not self.has_connection_error and not self.close_transaction :
@@ -185,7 +190,7 @@ class PlayerSockets :
             self.send_items.append(data)
 
     def isCodeIsSent(self, code: int) -> bool :
-        for item in self.send_items :
+        for item in self.send_items:
             if code == item[0] :
                 return False
         return True
@@ -241,7 +246,7 @@ class ServerTransaction :
 
     def checkIfCurrentlyCooldown(self, index: int) -> bool :
         if not self.__board[index][2] :
-            return False
+            return True
         if 0 < self.__board[index][2] :
             return False
         return True
@@ -397,50 +402,60 @@ class ServerTransaction :
 
     def threadHandleTheActivityOfPlayer(self, socket_id: str) :
         """ This where the activity of player, Such; download board and any activities"""
-        while not SHUTDOWN_SERVER and not self.current_players[socket_id].close_transaction and not \
-        self.current_players[socket_id].has_connection_error :
-            if self.current_players[socket_id].recv_items :
-                activity = self.current_players[socket_id].getFirstRecvItems()
+        try:
+            while not SHUTDOWN_SERVER and not self.current_players[socket_id].close_transaction and not \
+            self.current_players[socket_id].has_connection_error :
+                if self.current_players[socket_id].recv_items :
+                    activity = self.current_players[socket_id].getFirstRecvItems()
+                    print(f"------------ [ {activity} ] ----------------")
 
-                # if user want to close the program
-                if activity.get(0) :
-                    self.current_players[socket_id].closeAllProcess()
-                    del self.current_players[socket_id]
-                    print(f"[!] Activity user want to close the app : {socket_id}")  # use for debugging
+                    # if user want to close the program
+                    if activity.get(0) :
+                        print(f"[!] Activity user want to close the app : {socket_id}") # use for debugging
+                        self.current_players[socket_id].closeAllProcess()
+                        del self.current_players[socket_id]
 
-                # if user want to join the game
-                if activity.get(1) :
-                    # send the tiles in board
-                    print(f"[!] Activity user want to download the board : {socket_id}")  # use for debugging
-                    interval = 5
-                    downloaded = 0
-                    need_data_every_interval = len(self.__board) / interval
-                    for i in range(interval) :
-                        datas = tuple(
-                            (pos, self.__board[pos][0], self.__board[pos][1]) for pos in
-                            range(downloaded, int(downloaded + need_data_every_interval))
-                        )
-                        downloaded += need_data_every_interval
-                        if self.current_players[socket_id].has_connection_error :
-                            break
-                        else :
-                            self.current_players[socket_id].putItemInSendItems(data=(2, datas))
-                    self.current_players[socket_id].putItemInSendItems(data=(7, None))
-                    self.current_players[socket_id].done_downloading = True
+                    # if user want to join the game
+                    if activity.get(1) :
+                        # send the tiles in board
+                        print(f"[!] Activity user want to download the board : {socket_id}")  # use for debugging
+                        interval = 5
+                        downloaded = 0
+                        need_data_every_interval = int(len(self.__board) / interval)
+                        print(f"Data Interval : {len(self.__board)} / {interval} = {need_data_every_interval}  ")
+                        for i in range(interval) :
+                            datas = tuple(
+                                (pos, self.__board[pos][0], self.__board[pos][1]) for pos in
+                                range(downloaded, int(downloaded + need_data_every_interval))
+                            )
+                            downloaded += need_data_every_interval
+                            print("================== Loop")
+                            if self.current_players[socket_id].has_connection_error :
+                                break
+                            else :
+                                self.current_players[socket_id].putItemInSendItems(data=(2, tuple(datas) ))
+                        self.current_players[socket_id].putItemInSendItems(data=(7, None))
+                        self.current_players[socket_id].done_downloading = True
 
-                # if user want to check the information of app
-                if activity.get(9) :
-                    # Information -> ( 8 , ( active_players, most_active_course, most_used_color ) )
-                    self.current_players[socket_id].putItemInSendItems(
-                        data=(8, (self.active_players, self.most_active_course, tuple(self.most_used_color))))
-
-                # if user want to change the tiles in board
-                if activity.get(3) :
-                    if self.checkIfCurrentlyCooldown(activity[3][0]) :
-                        self.updateBoardTiles(tile=activity[3][0], course=activity[3][1], color=activity[3][2])
-                    else :
+                    # if user want to check the information of app
+                    if activity.get(9) :
+                        # Information -> ( 8 , ( active_players, most_active_course, most_used_color ) )
                         self.current_players[socket_id].putItemInSendItems(
-                            data=(4, self.getBoardTileData(activity[3][0])[-1]))
+                            data=(8, (self.active_players, self.most_active_course, tuple(self.most_used_color))))
+
+                    # if user want to change the tiles in board
+                    if activity.get(3) :
+                        if self.checkIfCurrentlyCooldown(activity[3][0]) :
+                            print("[!] The Board Is Okey")
+                            self.updateBoardTiles(tile=activity[3][0], course=activity[3][1], color=activity[3][2])
+                            print(f"[?] Updated Tiles : {self.__board[activity[3][0]]}")
+                        else :
+                            print("[!] The Board already used ")
+                            print(f"[?] Cooldown Tiles : {self.__board[activity[3][0]]}")
+                            self.current_players[socket_id].putItemInSendItems(
+                                data=(4, self.getBoardTileData(activity[3][0])[-1]))
+        except KeyError:
+            pass
 
     def runTheServer(self) :
         """ This is where the configuring and assembling all the functions """
