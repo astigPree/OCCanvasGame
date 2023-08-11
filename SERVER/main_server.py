@@ -27,6 +27,7 @@ SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = st
             Information -> ( 8 , ( active_players, most_active_course, most_used_color ) )
         Minor :
             Tiles -> ( 2 , ( position , course , color  ) , ...  )
+            Checking -> ( 10 , None )
     
     Receive Data:
         Priority :
@@ -35,6 +36,7 @@ SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = st
             Information -> { 9 : True }
         Minor :
             Update Tiles -> { 3 : ( position , course , color ) }
+            Checking -> { 10 : None }
                     
 """
 
@@ -52,6 +54,8 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
     try :
         data: bytes = client.recv(packet)
     except socket.error :
+        return None
+    if data is None:
         return None
     return data
 
@@ -76,22 +80,34 @@ class CustomSocket :
         self.done_activity = False
         header: bytes = received_data(self.__connection, HEADER_SIZE)
         # Received ; 'code:body_size'
-        if header is None :
+        if header is None or not header:
             self.done_activity = True
             return None
         # print(f"[!] Dumps Header : {header}")
-        header: str = pickle.loads(header)
-        print(f"[!] Loads Header : {header}")
+        try :
+            code, bode_size = pickle.loads(header).split(":")
+        except pickle.UnpicklingError :
+            self.done_activity = True
+            return None
+        except AttributeError :
+            self.done_activity = True
+            return None
+        #print(f"[!] Loads Header : {header}")
 
-        code, bode_size = header.split(":")
         body: bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
         # print(f"[!] Dumps Body : {body}")
-        if body is None :
+        if body is None and not body:
             self.done_activity = True
             return None
         # print(f"[!] Loads Body : {pickle.loads(body)}")
+        try :
+            body = pickle.loads(body)
+        except pickle.UnpicklingError :
+            self.done_activity = True
+            return None
+
         self.done_activity = True
-        return {int(code) : pickle.loads(body)}
+        return {int(code) : body}
 
     def send(self, code: int, data: tp.Any) -> bool :
         self.done_activity = False
@@ -145,15 +161,13 @@ class PlayerSockets :
 
     def threadSend(self) :
         while not self.has_connection_error and not self.close_transaction :
-            if len(self.send_items) > 0 :
+            if len(self.send_items) > 0 and not self.send.done_activity:
                 data = self.send_items[0]
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
                 else :
-                    try:
+                    if data in self.send_items:
                         self.send_items.remove(data)
-                    except ValueError:
-                        pass
 
     def threadRecv(self) :
         while not self.has_connection_error and not self.close_transaction :
@@ -162,6 +176,20 @@ class PlayerSockets :
                 self.has_connection_error = True
             else :
                 self.recv_items.append(data)
+
+    def threadCheckingForASeconds(self , seconds = 2 ):
+        """ This was to check if the client still working """
+        while not self.has_connection_error and not self.close_transaction and not SHUTDOWN_SERVER:
+            for _ in range(5):
+                for _ in range(60):
+                    time.sleep(1/60)
+                    if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
+                        break
+                if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
+                    break
+            else:
+                if not self.send_items :
+                    self.putItemInSendItems(data= (10 , None) )
 
     def checkIfPlayerWantToClose(self) :  # Return True if the player want to close the game
         for item in self.send_items :
@@ -379,6 +407,7 @@ class ServerTransaction :
             # Start the sending and receiving the player
             threading.Thread(target=self.current_players[socket_id].threadRecv).start()
             threading.Thread(target=self.current_players[socket_id].threadSend).start()
+            threading.Thread(target=self.current_players[socket_id].threadCheckingForASeconds).start()
             threading.Thread(target=self.current_players[socket_id].threadBoardActivitiesUpdate).start()
             # print(f"[!] Thread Start Of Sending And Receiving : {socket_id}") # use for debugging
             threading.Thread(target=self.threadHandleTheNotificationOfServerAndPlayer, args=(socket_id,)).start()
@@ -388,17 +417,21 @@ class ServerTransaction :
 
     def threadHandleTheNotificationOfServerAndPlayer(self, socket_id: str) :
         """ This where the notifying the server or the player  """
-        while True :
+        try:
+            while True :
 
-            if SHUTDOWN_SERVER :  # Activity when the admin want to close the server
-                self.activityShutdownTheServer(socket_id)
-                print(f"[!] Notify of shutting down server : {socket_id}")  # use for debugging
-                break
+                if SHUTDOWN_SERVER :  # Activity when the admin want to close the server
+                    self.activityShutdownTheServer(socket_id)
+                    print(f"[!] Notify of shutting down server : {socket_id}")  # use for debugging
+                    break
 
-            if self.current_players[socket_id].checkPlayerSocket() :  # Activity when the player socket has an error
-                self.activityPlayerHasErrorConnection(socket_id)
-                print(f"[!] Notify of closing the player : {socket_id}")  # use for debugging
-                break
+                if self.current_players[socket_id].checkPlayerSocket() :  # Activity when the player socket has an error
+                    self.activityPlayerHasErrorConnection(socket_id)
+                    print(f"[!] Notify of closing the player : {socket_id}")  # use for debugging
+                    break
+
+        except KeyError:
+            pass
 
     def threadHandleTheActivityOfPlayer(self, socket_id: str) :
         """ This where the activity of player, Such; download board and any activities"""
@@ -408,12 +441,13 @@ class ServerTransaction :
                 if self.current_players[socket_id].recv_items :
                     activity = self.current_players[socket_id].getFirstRecvItems()
                     print(f"------------ [ {activity} ] ----------------")
+                    print(f"Status Has Error : {self.current_players[socket_id].has_connection_error}")
+                    print(f"Current Connected : {self.current_players}")
 
                     # if user want to close the program
                     if activity.get(0) :
                         print(f"[!] Activity user want to close the app : {socket_id}") # use for debugging
-                        self.current_players[socket_id].closeAllProcess()
-                        del self.current_players[socket_id]
+                        self.activityPlayerHasErrorConnection(socket_id)
 
                     # if user want to join the game
                     if activity.get(1) :
@@ -482,6 +516,7 @@ class ServerTransaction :
 
         except Exception as e :
             print(f"[!] The Error : {e}")
+            self.closeTheServer()
 
         DONE_RUNNING_SERVER = False
 
@@ -529,6 +564,17 @@ def main() :
         else :
             print("[    !] Follow The Instruction!")
 
+
+
+if __name__ == "__main__" :
+    transaction = ServerTransaction()
+    transaction.runTheServer()
+    # //main()
+    #
+    # with open("player_board.json" , 'r') as jf:
+    #     board = json.load(jf)
+    #     print(sys.getsizeof(pickle.dumps(board[0:125])))
+
     # total_pickle = 0
     # total_json = 0
     # tiles_size = 250 * 250
@@ -544,9 +590,3 @@ def main() :
     # print(f"Number Of Tiles : {tiles_size:3,}")
     # print(f"Pickle : {total_pickle:3,}")
     # print(f"Json : {total_json:3,}")
-
-
-if __name__ == "__main__" :
-    transaction = ServerTransaction()
-    transaction.runTheServer()
-    # //main()

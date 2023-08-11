@@ -258,19 +258,19 @@ def testServer():
 
     # Display If Any Occurrence Happen
     def displayReceived():
-        ClientID = 'Client 1'
+        ClientID = 'Client 2'
         while not close:
             data = client.getFirstRecvItems()
             if data:
-                with open("datas.txt", "a") as file:
+                with open("datas.txt", "a") as file :
                     txt = f"{ClientID} = "
-                    for k in data:
+                    for k in data :
                         txt += f"{k} : "
-                        try:
+                        try :
                             txt += f"{len(data[k])}"
-                        except TypeError:
+                        except TypeError :
                             txt += str(data[k])
-                    file.write(txt+"\n")
+                    file.write(txt + "\n")
 
     threading.Thread(target=displayReceived).start()
 
