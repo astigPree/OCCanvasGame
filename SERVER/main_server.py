@@ -55,8 +55,6 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
         data: bytes = client.recv(packet)
     except socket.error :
         return None
-    if data is None:
-        return None
     return data
 
 
@@ -149,7 +147,7 @@ class PlayerSockets :
 
     def threadSend(self) :
         while not self.has_connection_error and not self.close_transaction :
-            if len(self.send_items) > 0 and not self.send.done_activity:
+            if len(self.send_items) > 0:
                 data = self.send_items[0]
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
@@ -165,10 +163,10 @@ class PlayerSockets :
             else :
                 self.recv_items.append(data)
 
-    def threadCheckingForASeconds(self , seconds = 2 ):
+    def threadCheckingForASeconds(self , seconds = 1 ):
         """ This was to check if the client still working """
         while not self.has_connection_error and not self.close_transaction and not SHUTDOWN_SERVER:
-            for _ in range(5):
+            for _ in range(seconds):
                 for _ in range(60):
                     time.sleep(1/60)
                     if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
@@ -176,7 +174,8 @@ class PlayerSockets :
                 if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
                     break
             else:
-                if not self.send_items :
+                if not self.recv_items :
+                    print("Checking ---------------------------- ")
                     self.putItemInSendItems(data= (10 , None) )
 
     def checkIfPlayerWantToClose(self) :  # Return True if the player want to close the game
@@ -279,7 +278,10 @@ class ServerTransaction :
     def updateBoardTiles(self, tile: int, course: int, color: int) :
         self.__board[tile] = [course, color, self.COOLDOWN]
         for player in self.current_players :
-            self.current_players[player].putTilesInfoInBoardActivities(data=(2, (tile, course, color)))
+            try:
+                self.current_players[player].putTilesInfoInBoardActivities(data=(2, (tile, course, color)))
+            except KeyError:
+                pass
 
     def getBoardDataForSendingTileInformation(self, tile: int) -> tuple[
         int, pickle.dumps] :  # return of a size of bytes and bytes
@@ -504,9 +506,9 @@ class ServerTransaction :
 
         except Exception as e :
             print(f"[!] The Error : {e}")
+        finally:
             self.closeTheServer()
-
-        DONE_RUNNING_SERVER = False
+            DONE_RUNNING_SERVER = False
 
     def closeTheServer(self) :
         global SHUTDOWN_SERVER
@@ -525,6 +527,7 @@ class ServerTransaction :
         self.saveBoardData()
         if self.server_socket :
             self.server_socket.close()
+        print("[/] Successfully Closed")
 
 
 def main() :
@@ -557,7 +560,7 @@ def main() :
 if __name__ == "__main__" :
     transaction = ServerTransaction()
     transaction.runTheServer()
-    # //main()
+    # main()
     #
     # with open("player_board.json" , 'r') as jf:
     #     board = json.load(jf)

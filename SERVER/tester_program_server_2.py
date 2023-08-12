@@ -17,10 +17,11 @@ PORT = 45678
 SHUTDOWN_SERVER = False
 DONE_RUNNING_SERVER = False
 
-HEADER_SIZE = 56  # The size of header when using pickle , format ; '2:87301' = code:pickle_size
+HEADER_SIZE = 40  # The size of header when using pickle , format ; '2:87301' = code:body_size
 SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = str(uuid.uuid4())[:5]
 
 ClientID = 'Client 2'
+
 
 def create_socket() -> tp.Union[socket.socket, None] :
     try :
@@ -35,6 +36,7 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
     try :
         data: bytes = client.recv(packet )
     except socket.error :
+        print("Error 111111111111111111111111")
         return None
     return data
 
@@ -43,6 +45,7 @@ def send_data(client: socket.socket, data: bytes) -> bool :
     try :
         client.sendall(data)
     except socket.error :
+        print("Error 111111111111111111111111")
         return False
     return True
 
@@ -61,28 +64,15 @@ class CustomSocket:
             self.done_activity = True
             return None
         # print(f"[!] Dumps Header : {header}")
-        try :
-            code, bode_size = pickle.loads(header).split(":")
-        except pickle.UnpicklingError :
-            print(f"Unpickling Error ({ClientID}) : {header}")
-            self.done_activity = True
-            return None
-        except AttributeError :
-            print(f"Attribute Error ({ClientID}) : {pickle.loads(header)}")
-            self.done_activity = True
-            return None
-
+        code, bode_size = header.decode().split(":")
+        #print(f"[!] Loads Header : {header}")
         body: bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
         # print(f"[!] Dumps Body : {body}")
         if body is None and not body:
             self.done_activity = True
             return None
         # print(f"[!] Loads Body : {pickle.loads(body)}")
-        try :
-            body = pickle.loads(body)
-        except pickle.UnpicklingError :
-            self.done_activity = True
-            return None
+        body = pickle.loads(body)
 
         self.done_activity = True
         return {int(code) : body}
@@ -91,21 +81,18 @@ class CustomSocket:
         self.done_activity = False
         data = pickle.dumps(data)
         body_size = sys.getsizeof(data)
-        # print(f"[!] Packet Size {code}:{body_size} = " , end='')
+        # print(f"[!] Packet Size {code}:{body_size} = ", end='')
         # print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
         # print(f"[!] Body Size : {body_size}")
-        time.sleep(1 / 5) # Time lang gali an problema na yawa
-        if not send_data(self.__connection, pickle.dumps(f"{code}:{body_size}")) :  # Sent ; 'code:body_size'
+        if not send_data(self.__connection, f"{code}:{body_size}".encode()) :  # Sent ; 'code:body_size'
             self.done_activity = True
             return False
-        # print("[/] Done Sending Header")
-        time.sleep(1 / 5) # Time lang gali an problema na yawa
         if not send_data(self.__connection, data) :  # Sent ; '(int, int, int)'
             self.done_activity = True
             return False
-        # print("[/] Done Sending Body")
         self.done_activity = True
         return True
+
 
     def close(self) :
         self.__connection.shutdown()
@@ -167,10 +154,11 @@ class PlayerSockets :
 
     def threadSend(self) :
         while not self.has_connection_error and not self.close_transaction :
-            if len(self.send_items) > 0 and not self.send.done_activity:
+            if len(self.send_items) > 0 :
                 data = self.send_items[0]
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
+                    break
                 else :
                     self.send_items.remove(data)
 
@@ -179,8 +167,23 @@ class PlayerSockets :
             data = self.recv.received()
             if not data :
                 self.has_connection_error = True
+                break
             else :
                 self.recv_items.append(data)
+
+    def threadCheckingForASeconds(self , seconds = 1 ):
+        """ This was to check if the client still working """
+        while not self.has_connection_error and not self.close_transaction and not SHUTDOWN_SERVER:
+            for _ in range(seconds):
+                for _ in range(60):
+                    time.sleep(1/60)
+                    if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
+                        break
+                if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
+                    break
+            else:
+                if not self.recv_items :
+                    self.putItemInSendItems(data= (10 , None) )
 
     def checkIfPlayerWantToClose(self) :  # Return True if the player want to close the game
         for item in self.send_items :
@@ -248,6 +251,7 @@ def testServer():
     # Ready Threading
     threading.Thread(target=client.threadRecv).start()
     threading.Thread(target=client.threadSend).start()
+    threading.Thread(target=client.threadCheckingForASeconds).start()
     print("[!] Run Threading")
 
     # Download The Board
@@ -261,24 +265,26 @@ def testServer():
 
     # Display If Any Occurrence Happen
     def displayReceived():
+        # Information ; Client ID = Code : Length or Value
         while not close:
             data = client.getFirstRecvItems()
             if data:
-                with open("datas.txt", "a") as file :
+                with open("datas.txt", "a") as file:
                     txt = f"{ClientID} = "
-                    for k in data :
+                    for k in data:
                         txt += f"{k} : "
-                        try :
+                        try:
                             txt += f"{len(data[k])}"
-                        except TypeError :
+                        except TypeError:
                             txt += str(data[k])
-                    file.write(txt + "\n")
+                    file.write(txt+"\n")
 
     threading.Thread(target=displayReceived).start()
 
     while True:
         code = input("\nCode : ")
         activity = input("Value : ")
+        print(f"Number Of Items : {len(client.send_items)}")
         client.putItemInSendItems(data=(int(code), eval(activity) ))
         if client.has_connection_error:
             print("[!] Has an error !")
