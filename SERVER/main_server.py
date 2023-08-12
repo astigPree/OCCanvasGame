@@ -74,6 +74,12 @@ class CustomSocket :
     def setSocket(self, connection: socket.socket) :
         self.__connection = connection
 
+    def checkIfWorking(self) -> bool:
+        if self.__connection.fileno():
+            return True
+        else:
+            return False
+
     def received(self) -> tp.Union[None, tp.Dict] :
         self.done_activity = False
         header: bytes = received_data(self.__connection, HEADER_SIZE)
@@ -90,7 +96,11 @@ class CustomSocket :
             self.done_activity = True
             return None
         # print(f"[!] Loads Body : {pickle.loads(body)}")
-        body = pickle.loads(body)
+        try:
+            body = pickle.loads(body)
+        except pickle.UnpicklingError :
+            self.done_activity = True
+            return None
 
         self.done_activity = True
         return {int(code) : body}
@@ -163,7 +173,7 @@ class PlayerSockets :
             else :
                 self.recv_items.append(data)
 
-    def threadCheckingForASeconds(self , seconds = 1 ):
+    def threadCheckingForASeconds(self , seconds = 3 ):
         """ This was to check if the client still working """
         while not self.has_connection_error and not self.close_transaction and not SHUTDOWN_SERVER:
             for _ in range(seconds):
@@ -175,7 +185,6 @@ class PlayerSockets :
                     break
             else:
                 if not self.recv_items :
-                    print("Checking ---------------------------- ")
                     self.putItemInSendItems(data= (10 , None) )
 
     def checkIfPlayerWantToClose(self) :  # Return True if the player want to close the game
@@ -415,7 +424,7 @@ class ServerTransaction :
                     print(f"[!] Notify of shutting down server : {socket_id}")  # use for debugging
                     break
 
-                if self.current_players[socket_id].checkPlayerSocket() :  # Activity when the player socket has an error
+                if self.current_players[socket_id].has_connection_error and not SHUTDOWN_SERVER :  # Activity when the player socket has an error
                     self.activityPlayerHasErrorConnection(socket_id)
                     print(f"[!] Notify of closing the player : {socket_id}")  # use for debugging
                     break

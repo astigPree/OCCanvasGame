@@ -36,7 +36,6 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
     try :
         data: bytes = client.recv(packet )
     except socket.error :
-        print("Error 111111111111111111111111")
         return None
     return data
 
@@ -45,7 +44,6 @@ def send_data(client: socket.socket, data: bytes) -> bool :
     try :
         client.sendall(data)
     except socket.error :
-        print("Error 111111111111111111111111")
         return False
     return True
 
@@ -55,6 +53,9 @@ class CustomSocket:
 
     def setSocket(self, connection: socket.socket) :
         self.__connection = connection
+
+    def checkIfWorking(self):
+        return True if self.__connection.fileno() else False
 
     def received(self) -> tp.Union[None, tp.Dict] :
         self.done_activity = False
@@ -72,7 +73,11 @@ class CustomSocket:
             self.done_activity = True
             return None
         # print(f"[!] Loads Body : {pickle.loads(body)}")
-        body = pickle.loads(body)
+        try:
+            body = pickle.loads(body)
+        except pickle.UnpicklingError :
+            self.done_activity = True
+            return None
 
         self.done_activity = True
         return {int(code) : body}
@@ -154,7 +159,7 @@ class PlayerSockets :
 
     def threadSend(self) :
         while not self.has_connection_error and not self.close_transaction :
-            if len(self.send_items) > 0 and not self.send.done_activity:
+            if len(self.send_items) > 0 :
                 data = self.send_items[0]
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
@@ -170,6 +175,20 @@ class PlayerSockets :
                 break
             else :
                 self.recv_items.append(data)
+
+    def threadCheckingForASeconds(self , seconds = 5 ):
+        """ This was to check if the client still working """
+        while not self.has_connection_error and not self.close_transaction and not SHUTDOWN_SERVER:
+            for _ in range(seconds):
+                for _ in range(60):
+                    time.sleep(1/60)
+                    if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
+                        break
+                if self.has_connection_error or self.close_transaction or SHUTDOWN_SERVER :
+                    break
+            else:
+                if not self.recv_items :
+                    self.putItemInSendItems(data= (10 , None) )
 
     def checkIfPlayerWantToClose(self) :  # Return True if the player want to close the game
         for item in self.send_items :
@@ -237,6 +256,7 @@ def testServer():
     # Ready Threading
     threading.Thread(target=client.threadRecv).start()
     threading.Thread(target=client.threadSend).start()
+    threading.Thread(target=client.threadCheckingForASeconds).start()
     print("[!] Run Threading")
 
     # Download The Board
@@ -269,8 +289,10 @@ def testServer():
     while True:
         code = input("\nCode : ")
         activity = input("Value : ")
+        print(f"Number Of Items : {len(client.send_items)}")
         client.putItemInSendItems(data=(int(code), eval(activity) ))
         if client.has_connection_error:
+            client.closeAllProcess()
             print("[!] Has an error !")
 
 
