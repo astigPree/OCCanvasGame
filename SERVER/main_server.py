@@ -15,7 +15,7 @@ NUMBER_OF_CONNECTED = 400
 SHUTDOWN_SERVER = False
 DONE_RUNNING_SERVER = False
 
-HEADER_SIZE = 56 # The size of header when using pickle , format ; '7:567' = code:pickle_size
+HEADER_SIZE = 40 # The size of header when using pickle , format ; '7:56755' = code:body_size
 SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = str(uuid.uuid4())[:5]
 
 """
@@ -84,27 +84,15 @@ class CustomSocket :
             self.done_activity = True
             return None
         # print(f"[!] Dumps Header : {header}")
-        try :
-            code, bode_size = pickle.loads(header).split(":")
-        except pickle.UnpicklingError :
-            self.done_activity = True
-            return None
-        except AttributeError :
-            self.done_activity = True
-            return None
+        code, bode_size = header.decode().split(":")
         #print(f"[!] Loads Header : {header}")
-
         body: bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
         # print(f"[!] Dumps Body : {body}")
         if body is None and not body:
             self.done_activity = True
             return None
         # print(f"[!] Loads Body : {pickle.loads(body)}")
-        try :
-            body = pickle.loads(body)
-        except pickle.UnpicklingError :
-            self.done_activity = True
-            return None
+        body = pickle.loads(body)
 
         self.done_activity = True
         return {int(code) : body}
@@ -116,7 +104,7 @@ class CustomSocket :
         # print(f"[!] Packet Size {code}:{body_size} = ", end='')
         # print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
         # print(f"[!] Body Size : {body_size}")
-        if not send_data(self.__connection, pickle.dumps(f"{code}:{body_size}")) :  # Sent ; 'code:body_size'
+        if not send_data(self.__connection, f"{code}:{body_size}".encode()) :  # Sent ; 'code:body_size'
             self.done_activity = True
             return False
         if not send_data(self.__connection, data) :  # Sent ; '(int, int, int)'

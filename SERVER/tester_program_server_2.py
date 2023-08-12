@@ -20,6 +20,7 @@ DONE_RUNNING_SERVER = False
 HEADER_SIZE = 56  # The size of header when using pickle , format ; '2:87301' = code:pickle_size
 SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = str(uuid.uuid4())[:5]
 
+ClientID = 'Client 2'
 
 def create_socket() -> tp.Union[socket.socket, None] :
     try :
@@ -63,9 +64,11 @@ class CustomSocket:
         try :
             code, bode_size = pickle.loads(header).split(":")
         except pickle.UnpicklingError :
+            print(f"Unpickling Error ({ClientID}) : {header}")
             self.done_activity = True
             return None
         except AttributeError :
+            print(f"Attribute Error ({ClientID}) : {pickle.loads(header)}")
             self.done_activity = True
             return None
 
@@ -258,7 +261,6 @@ def testServer():
 
     # Display If Any Occurrence Happen
     def displayReceived():
-        ClientID = 'Client 2'
         while not close:
             data = client.getFirstRecvItems()
             if data:

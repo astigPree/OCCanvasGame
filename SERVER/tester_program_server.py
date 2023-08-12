@@ -17,8 +17,10 @@ PORT = 45678
 SHUTDOWN_SERVER = False
 DONE_RUNNING_SERVER = False
 
-HEADER_SIZE = 56  # The size of header when using pickle , format ; '2:87301' = code:pickle_size
+HEADER_SIZE = 40  # The size of header when using pickle , format ; '2:87301' = code:body_size
 SOCKET_ID_SIZE = 53  # The size of the size of socket_id , format ; '9a1c6' = str(uuid.uuid4())[:5]
+
+ClientID = 'Client 1'
 
 
 def create_socket() -> tp.Union[socket.socket, None] :
@@ -34,6 +36,7 @@ def received_data(client: socket.socket, packet: int) -> tp.Union[bytes, None] :
     try :
         data: bytes = client.recv(packet )
     except socket.error :
+        print("Error 111111111111111111111111")
         return None
     return data
 
@@ -42,6 +45,7 @@ def send_data(client: socket.socket, data: bytes) -> bool :
     try :
         client.sendall(data)
     except socket.error :
+        print("Error 111111111111111111111111")
         return False
     return True
 
@@ -60,26 +64,15 @@ class CustomSocket:
             self.done_activity = True
             return None
         # print(f"[!] Dumps Header : {header}")
-        try :
-            code, bode_size = pickle.loads(header).split(":")
-        except pickle.UnpicklingError :
-            self.done_activity = True
-            return None
-        except AttributeError :
-            self.done_activity = True
-            return None
-
+        code, bode_size = header.decode().split(":")
+        #print(f"[!] Loads Header : {header}")
         body: bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
         # print(f"[!] Dumps Body : {body}")
         if body is None and not body:
             self.done_activity = True
             return None
         # print(f"[!] Loads Body : {pickle.loads(body)}")
-        try :
-            body = pickle.loads(body)
-        except pickle.UnpicklingError :
-            self.done_activity = True
-            return None
+        body = pickle.loads(body)
 
         self.done_activity = True
         return {int(code) : body}
@@ -88,21 +81,18 @@ class CustomSocket:
         self.done_activity = False
         data = pickle.dumps(data)
         body_size = sys.getsizeof(data)
-        # print(f"[!] Packet Size {code}:{body_size} = " , end='')
+        # print(f"[!] Packet Size {code}:{body_size} = ", end='')
         # print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
         # print(f"[!] Body Size : {body_size}")
-        time.sleep(1 / 5) # Time lang gali an problema na yawa
-        if not send_data(self.__connection, pickle.dumps(f"{code}:{body_size}")) :  # Sent ; 'code:body_size'
+        if not send_data(self.__connection, f"{code}:{body_size}".encode()) :  # Sent ; 'code:body_size'
             self.done_activity = True
             return False
-        # print("[/] Done Sending Header")
-        time.sleep(1 / 5) # Time lang gali an problema na yawa
         if not send_data(self.__connection, data) :  # Sent ; '(int, int, int)'
             self.done_activity = True
             return False
-        # print("[/] Done Sending Body")
         self.done_activity = True
         return True
+
 
     def close(self) :
         self.__connection.shutdown()
@@ -168,6 +158,7 @@ class PlayerSockets :
                 data = self.send_items[0]
                 if not self.send.send(data[0], data[1]) :
                     self.has_connection_error = True
+                    break
                 else :
                     self.send_items.remove(data)
 
@@ -176,6 +167,7 @@ class PlayerSockets :
             data = self.recv.received()
             if not data :
                 self.has_connection_error = True
+                break
             else :
                 self.recv_items.append(data)
 
@@ -258,7 +250,7 @@ def testServer():
 
     # Display If Any Occurrence Happen
     def displayReceived():
-        ClientID = 'Client 1'
+        # Information ; Client ID = Code : Length or Value
         while not close:
             data = client.getFirstRecvItems()
             if data:
