@@ -515,9 +515,8 @@ class ServerTransaction :
 
         except Exception as e :
             print(f"[!] The Error : {e}")
-        finally:
-            self.closeTheServer()
-            DONE_RUNNING_SERVER = False
+
+        DONE_RUNNING_SERVER = False
 
     def closeTheServer(self) :
         global SHUTDOWN_SERVER
