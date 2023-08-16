@@ -68,8 +68,7 @@ def send_data(client: socket.socket, data: bytes, timing=30) -> bool :
 
 
 class CustomSocket :
-    __connection: socket.socket = None
-    done_activity = False
+    __connection: tp.Union[ socket.socket , None] = None
 
     def setSocket(self, connection: socket.socket) :
         self.__connection = connection
@@ -81,11 +80,9 @@ class CustomSocket :
             return False
 
     def received(self) -> tp.Union[None, tp.Dict] :
-        self.done_activity = False
         header: bytes = received_data(self.__connection, HEADER_SIZE)
         # Received ; 'code:body_size'
         if header is None or not header :
-            self.done_activity = True
             return None
         # print(f"[!] Dumps Header : {header}")
         code, bode_size = header.decode().split(":")
@@ -93,37 +90,31 @@ class CustomSocket :
         body : bytes = received_data(self.__connection, int(bode_size))  # Received ; '(int, int, int)'
         # print(f"[!] Dumps Body : {body}")
         if body is None and not body :
-            self.done_activity = True
             return None
 
         try :
             body = json.loads( body.decode() )
         except json.JSONDecodeError :
-            self.done_activity = True
             return None
 
-        self.done_activity = True
         return {int(code) : body}
 
     def send(self, code: int, data: tp.Any) -> bool :
-        self.done_activity = False
         data = json.dumps(data).encode()
         body_size = sys.getsizeof(data)
         # print(f"[!] Packet Size {code}:{body_size} = ", end='')
         # print(f"{sys.getsizeof(pickle.dumps(f'{code}:{body_size}'))}")
         # print(f"[!] Body Size : {body_size}")
         if not send_data(self.__connection, f"{code}:{body_size}".encode()) :  # Sent ; 'code:body_size'
-            self.done_activity = True
             return False
         if not send_data(self.__connection, data) :  # Sent ; '(int, int, int)'
-            self.done_activity = True
             return False
-        self.done_activity = True
         return True
 
     def close(self) :
         self.__connection.shutdown(socket.SHUT_RDWR)
         self.__connection.close()
+        self.__connection = None
 
 
 class PlayerSockets :
@@ -143,11 +134,8 @@ class PlayerSockets :
         self.close_transaction = True
         self.recv_items.clear()
         self.send_items.clear()
-        while not self.recv.done_activity or not self.send.done_activity :
-            pass
-        if not self.has_connection_error :
-            self.recv.close()
-            self.send.close()
+        self.recv.close()
+        self.send.close()
 
     def threadBoardActivitiesUpdate(self) :
         while not self.has_connection_error and not self.close_transaction :
