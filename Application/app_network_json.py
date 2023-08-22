@@ -1,5 +1,5 @@
 
-import os.path
+from kivy.clock import Clock
 import socket
 import json
 import pickle
@@ -8,11 +8,12 @@ import typing as tp
 import sys
 from uuid import uuid4
 import time
-import copy
 
 
-ADDR = "localhost"
-PORT = 45678
+# ADDR = "localhost"
+# PORT = 45678
+ADDR = "0.tcp.ap.ngrok.io"
+PORT = 12927
 
 STOP_FUNCTIONS_RUNNING = False
 
@@ -154,6 +155,21 @@ class PlayerSockets :
                 else :
                     self.send_items.remove(data)
 
+    def sendRecursion(self):
+        if self.close_transaction:
+            return
+
+        global STOP_FUNCTIONS_RUNNING
+        if len(self.send_items) > 0 and not self.has_connection_error:
+            data = self.send_items[0]
+            if not self.send.send(data[0], data[1]) :
+                STOP_FUNCTIONS_RUNNING = True
+                self.has_connection_error = True
+            else :
+                self.send_items.remove(data)
+                # Recursion Happen Here <----- Clock
+                Clock.schedule_once(self.sendRecursion)
+
     def threadRecv(self) :
         while not self.close_transaction :
             if not self.has_connection_error:
@@ -162,6 +178,19 @@ class PlayerSockets :
                     self.has_connection_error = True
                 else :
                     self.recv_items.append(data)
+
+    def recvRecursion(self):
+        if self.close_transaction:
+            return
+
+        if not self.has_connection_error:
+            data = self.recv.received()
+            if not data:
+                self.has_connection_error = True
+            else:
+                self.recv_items.append(data)
+                # Recursion Happen Here <----- Clock
+                Clock.schedule_once(self.recvRecursion)
 
     def checkIfPlayerWantToClose(self) :  # Return True if the player want to close the game
         for item in self.send_items :
@@ -174,9 +203,6 @@ class PlayerSockets :
         if self.recv_items:
             return self.recv_items.pop(0)
         return None
-
-    def putTilesInfoInBoardActivities(self, data: tuple[int, tp.Any]) :  # used only in tiles activty
-        self.pending_board_activities.append(data)
 
     def putItemInSendItems(self, data: tuple[int, tp.Any]) :  # format; data = ( code , object )
         # priority = ( close : 0 ) -> ( rejection : 4 ) -> ( information : 8 ) -> ( success : 7 )
